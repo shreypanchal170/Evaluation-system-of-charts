@@ -1,0 +1,215 @@
+<?php
+include('db_connect.php'); // Include the database connection
+
+// Function to add ordinal suffixes to numbers
+function ordinal_suffix1($num) {
+    $num = $num % 100; // Protect against large numbers
+    if ($num < 11 || $num > 13) {
+        switch ($num % 10) {
+            case 1: return $num . 'st';
+            case 2: return $num . 'nd';
+            case 3: return $num . 'rd';
+        }
+    }
+    return $num . 'th';
+}
+
+$astat = array("Not Yet Started", "On-going", "Closed");
+
+$query = "SELECT 
+            e.evaluation_id,
+            e.subject_id,
+            sub.subject,
+            std.firstname AS 'First Name',
+            std.lastname AS 'Last Name',
+            ea.rate AS 'Eva',
+            ql.question,
+            eval_counts.rate_5_count,
+            eval_counts.rate_4_count,
+            eval_counts.rate_3_count,
+            eval_counts.rate_2_count,
+            eval_counts.rate_1_count
+          FROM 
+            evaluation_list e
+          INNER JOIN 
+            subject_list sub ON e.subject_id = sub.id
+          INNER JOIN 
+            student_list std ON e.student_id = std.id
+          INNER JOIN 
+            evaluation_answers ea ON e.evaluation_id = ea.evaluation_id
+          INNER JOIN 
+            question_list ql ON ea.question_id = ql.id
+          LEFT JOIN 
+            (SELECT 
+                 question_id,
+                 SUM(CASE WHEN rate = 5 THEN 1 ELSE 0 END) AS rate_5_count,
+                 SUM(CASE WHEN rate = 4 THEN 1 ELSE 0 END) AS rate_4_count,
+                 SUM(CASE WHEN rate = 3 THEN 1 ELSE 0 END) AS rate_3_count,
+                 SUM(CASE WHEN rate = 2 THEN 1 ELSE 0 END) AS rate_2_count,
+                 SUM(CASE WHEN rate = 1 THEN 1 ELSE 0 END) AS rate_1_count
+             FROM 
+                 evaluation_answers
+             GROUP BY 
+                 question_id) AS eval_counts ON ea.question_id = eval_counts.question_id;";
+
+$result = mysqli_query($conn, $query);
+$data = [];
+while($row = mysqli_fetch_assoc($result)) {
+    $data[] = $row;
+}
+?>
+
+<div class="col-12">
+    <div class="card">
+        <div class="card-body">
+            Welcome <?php echo $_SESSION['login_name'] ?>!
+            <br>
+            <div class="col-md-5">
+                <div class="callout callout-info">
+                    <h5><b>Academic Year: <?php echo $_SESSION['academic']['year'].' '.(ordinal_suffix1($_SESSION['academic']['semester'])) ?> Semester</b></h5>
+                    <h6><b>Evaluation Status: <?php echo $astat[$_SESSION['academic']['status']] ?></b></h6>
+                </div>
+            </div>
+            <canvas id="evaluationChart"></canvas>
+            <div style="width: 50%; height: 50%;">
+                <canvas id="pieChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const data = <?php echo json_encode($data); ?>;
+    const labels = data.map(item => item.question);
+    const rate5 = data.map(item => item.rate_5_count);
+    const rate4 = data.map(item => item.rate_4_count);
+    const rate3 = data.map(item => item.rate_3_count);
+    const rate2 = data.map(item => item.rate_2_count);
+    const rate1 = data.map(item => item.rate_1_count);
+
+    // Bar and Line Chart
+    const ctx = document.getElementById('evaluationChart').getContext('2d');
+    const evaluationChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Rate 5 (Bar)',
+                    data: rate5,
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1,
+                    type: 'bar'
+                },
+                {
+                    label: 'Rate 4 (Line)',
+                    data: rate4,
+                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1,
+                    type: 'line',
+                    fill: false,
+                    tension: 0 // Straight line
+                },
+                {
+                    label: 'Rate 3 (Spline)',
+                    data: rate3,
+                    backgroundColor: 'rgba(255, 206, 86, 0.2)',
+                    borderColor: 'rgba(255, 206, 86, 1)',
+                    borderWidth: 1,
+                    type: 'line',
+                    fill: false,
+                    tension: 0.4 // Curved line
+                },
+                {
+                    label: 'Rate 2 (Bar)',
+                    data: rate2,
+                    backgroundColor: 'rgba(255, 159, 64, 0.2)',
+                    borderColor: 'rgba(255, 159, 64, 1)',
+                    borderWidth: 1,
+                    type: 'bar'
+                },
+                {
+                    label: 'Rate 1 (Line)',
+                    data: rate1,
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    borderWidth: 1,
+                    type: 'line',
+                    fill: false,
+                    tension: 0.4 // Curved line
+                }
+            ]
+        },
+        options: {
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            },
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                }
+            }
+        }
+    });
+
+    // Pie Chart
+    const pieData = {
+        labels: ['Rate 5', 'Rate 4', 'Rate 3', 'Rate 2', 'Rate 1'],
+        datasets: [{
+            data: [
+                rate5.reduce((a, b) => a + b, 0), // Sum of all rate 5 counts
+                rate4.reduce((a, b) => a + b, 0), // Sum of all rate 4 counts
+                rate3.reduce((a, b) => a + b, 0), // Sum of all rate 3 counts
+                rate2.reduce((a, b) => a + b, 0), // Sum of all rate 2 counts
+                rate1.reduce((a, b) => a + b, 0)  // Sum of all rate 1 counts
+            ],
+            backgroundColor: [
+                'rgba(75, 192, 192, 0.2)',
+                'rgba(54, 162, 235, 0.2)',
+                'rgba(255, 206, 86, 0.2)',
+                'rgba(255, 159, 64, 0.2)',
+                'rgba(255, 99, 132, 0.2)'
+            ],
+            borderColor: [
+                'rgba(75, 192, 192, 1)',
+                'rgba(54, 162, 235, 1)',
+                'rgba(255, 206, 86, 1)',
+                'rgba(255, 159, 64, 1)',
+                'rgba(255, 99, 132, 1)'
+            ],
+            borderWidth: 1
+        }]
+    };
+
+    const pieCtx = document.getElementById('pieChart').getContext('2d');
+    const pieChart = new Chart(pieCtx, {
+        type: 'pie',
+        data: pieData,
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(tooltipItem) {
+                            const value = pieData.datasets[tooltipItem.datasetIndex].data[tooltipItem.dataIndex];
+                            return `${pieData.labels[tooltipItem.dataIndex]}: ${value}`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+</script>
